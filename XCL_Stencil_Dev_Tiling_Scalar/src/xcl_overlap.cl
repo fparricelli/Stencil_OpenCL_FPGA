@@ -1,0 +1,176 @@
+#define TYPE    float 
+
+#define BLOCK_DIM 16 
+
+__constant signed   k0              = 4; 
+__constant signed   k1              = 3; 
+__constant signed   k2              = 2; 
+__constant signed   k3              = -3; 
+__constant signed   k4              = -4; 
+__constant unsigned block_dim = BLOCK_DIM;
+__constant unsigned block_dim_adj = BLOCK_DIM + 2;
+
+pipe TYPE read_to_compute __attribute__((xcl_reqd_pipe_depth(512)));
+pipe TYPE compute_to_write __attribute__((xcl_reqd_pipe_depth(512)));
+
+static void compute_stencil_on_block(local TYPE* c_block_in,local TYPE* c_block_out);
+static void fill_block (__constant TYPE* restrict matrix_ptr, local TYPE* c_block,const unsigned block_num, unsigned x, unsigned y );
+
+__attribute__((reqd_work_group_size(1,1,1)))
+__kernel void read_input ( __constant TYPE* restrict sData_in,
+                            size_t rows,
+                            size_t cols,
+                            size_t size)
+{
+
+    const unsigned block_num = rows / block_dim;
+    local TYPE c_block[block_dim_adj][block_dim_adj];
+
+    for (unsigned x = 0; x < block_num; ++x){
+        for (unsigned y = 0; y < block_num; ++y){
+            fill_block( sData_in, &c_block[0][0], block_num, x, y );
+            for(unsigned i = 0; i < block_dim_adj; i++){
+                for( unsigned j = 0; j < block_dim_adj; ++j){
+                   write_pipe_block(read_to_compute, &c_block[i][j]);
+                }
+            }
+        
+        }
+    }
+}
+
+__attribute__((reqd_work_group_size(1,1,1)))
+__kernel void compute ( size_t size,
+                        size_t rows,
+                        size_t cols,
+                        __global TYPE* restrict sDummy )
+{
+
+    const unsigned block_num = rows / block_dim;
+    local TYPE c_block_in[block_dim_adj][block_dim_adj];
+    local TYPE c_block_out[block_dim][block_dim];
+
+    for ( unsigned x = 0; x < block_num; ++x ){
+        for (unsigned y = 0; y < block_num; ++y){
+            for (unsigned i = 0; i < block_dim_adj; ++i){
+                for (unsigned j = 0; j < block_dim_adj; ++j){
+                    read_pipe_block(read_to_compute, &c_block_in[i][j]);
+                    }
+                }
+            
+            compute_stencil_on_block(&c_block_in[0][0],&c_block_out[0][0]);
+
+            for (unsigned i = 0; i < block_dim; ++i){
+                for (unsigned j = 0; j < block_dim; ++j){
+                     write_pipe_block(compute_to_write, &c_block_out[i][j]); 
+                }
+            }
+
+        }
+    }
+
+}
+
+
+__attribute__((reqd_work_group_size(1,1,1)))
+__kernel void write_output ( __global TYPE* restrict sData_out,
+                            size_t rows,
+                            size_t cols,
+                            size_t size)
+{
+
+    const unsigned block_num = rows / block_dim;
+    local TYPE c_block_out[(block_dim)][(block_dim)] ;
+
+    for ( unsigned x = 0; x < block_num; ++x ){
+        for (unsigned y = 0; y < block_num; ++y){
+            for (unsigned i = 0; i < block_dim ; ++i){
+                for (unsigned j = 0; j < block_dim; ++j){
+                    read_pipe_block(compute_to_write, &c_block_out[i][j]);
+                }
+            }
+
+            for (unsigned i = 0; i < block_dim ; ++i){
+                for (unsigned j = 0; j < block_dim; ++j){
+                    sData_out[x*block_dim*block_dim*block_num + y*block_dim + i*block_num*block_dim + j] = c_block_out[i][j];
+                    }
+                }
+          
+            }
+    }
+}
+
+static void fill_block (__constant TYPE* restrict matrix_ptr, local TYPE* mc_block, unsigned block_num, unsigned x, unsigned y ) {
+
+            local TYPE (*c_block)[block_dim_adj] = (local TYPE (*)[block_dim_adj])mc_block;
+
+            __attribute__((opencl_unroll_hint(0)))
+            for (unsigned i = 1; i < block_dim + 1; i++ ){
+            __attribute__((opencl_unroll_hint(0)))
+                for (unsigned j = 1; j < block_dim + 1; j++)
+                    c_block[i][j] = matrix_ptr[((i-1)+x*block_dim)*block_num*block_dim + y*block_dim + j-1];
+            }
+            
+            if ( x == 0 ){
+                for ( unsigned i = 0; i < block_dim +2 ; i++ ) {
+                    c_block[0][i] = 0;
+                    c_block[block_dim+1][i] = ((x+1)*block_dim*block_num*block_dim + y*block_dim + i-1) > 0 ?  matrix_ptr[(x+1)*block_dim*block_num*block_dim + y*block_dim + i-1] : 0;
+                }
+                
+            }
+            else if ( x == block_num - 1 ){
+                for (unsigned i = 0; i < block_dim + 2; i++ ){
+                    c_block[0][i] = (((x-1)*block_dim)*block_num*block_dim + y*block_dim + block_num*block_dim*(block_dim - 1) + i-1) > 0 ? matrix_ptr[((x-1)*block_dim)*block_num*block_dim + y*block_dim + block_num*block_dim*(block_dim - 1) + i-1] : 0;
+                    c_block[block_dim + 1][i] = 0;
+                }
+            }
+            else{
+                for ( unsigned i = 0; i < block_dim +2 ; i++ ){
+                        c_block[0][i] = (((x-1)*block_dim)*block_num*block_dim + y*block_dim + block_num*block_dim*(block_dim - 1) + i-1) > 0 ? matrix_ptr[((x-1)*block_dim)*block_num*block_dim + y*block_dim + block_num*block_dim*(block_dim - 1) + i-1] : 0;
+                }for ( unsigned i = 0; i < block_dim +2 ; i++ ){
+                        c_block[block_dim+1][i] = ((x+1)*block_dim*block_num*block_dim + y*block_dim + i-1) > 0 ? matrix_ptr[(x+1)*block_dim*block_num*block_dim + y*block_dim + i-1] : 0;
+
+                }
+            }
+
+            if ( y == 0 ) {
+                for ( unsigned i = 0; i < block_dim +2 ; i++ ) {
+                    c_block[i][0] = 0;
+                    if( i > 0 && i < block_dim + 1 && y != block_num - 1 )
+                        c_block[i][block_dim +1] = matrix_ptr[(x)*block_dim*block_num*block_dim + (y+1)*block_dim + (i-1)*block_dim*block_num];
+                    else if( i > 0 && i < block_dim + 1 && y == block_num - 1 )
+                        c_block[i][block_dim +1] = 0; 
+                }             
+            
+            }
+            else if (y == block_num -1 ) {
+
+                for ( unsigned i = 0; i < block_dim +2 ; i++ ) {
+                    if( i > 0 && i < block_dim + 1 )
+                        c_block[i][0] = matrix_ptr[(x)*block_dim*block_num*block_dim + (y-1)*block_dim + (i-1)*block_dim*block_num + block_dim - 1];
+                    c_block[i][block_dim +1] = 0;
+                }             
+            }
+            else {
+                for ( unsigned i = 1; i < block_dim +1 ; i++ ) {
+                        c_block[i][0] = matrix_ptr[(x)*block_dim*block_num*block_dim + (y-1)*block_dim + (i-1)*block_dim*block_num + block_dim - 1];
+                }for ( unsigned i = 1; i < block_dim +1 ; i++ ) {
+                        c_block[i][block_dim +1] = matrix_ptr[(x)*block_dim*block_num*block_dim + (y+1)*block_dim + (i-1)*block_dim*block_num];
+                }   
+            }    
+    
+}
+
+static void compute_stencil_on_block(local TYPE* mc_block_in, local TYPE* mc_block_out){
+            
+    local TYPE (*c_block_in)[block_dim_adj] = (local TYPE (*)[block_dim_adj])mc_block_in;
+    local TYPE (*c_block_out)[block_dim] = (local TYPE (*)[block_dim])mc_block_out;
+
+    for ( unsigned i = 0; i < block_dim; i++ ){
+        for (unsigned j = 0; j < block_dim; j++){
+            c_block_out[i][j] = (k0*c_block_in[i+1][j+1] + k1*c_block_in[i+1][j+2] + k2*c_block_in[i+1][j] + k3*c_block_in[i][j+1] + k4*c_block_in[i+2][j+1]);
+
+        }  
+    }
+}
+
