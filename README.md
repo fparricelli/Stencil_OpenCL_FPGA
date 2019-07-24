@@ -3,9 +3,9 @@
 ## Prerequisites
 
 To be able to compile and launch the kernels make sure that the following environment variables are properly set:
-* XILINX_XRT=<path_to_xrt> (i.e /opt/xilinx/xrt/ )
-* XILINX_SDX=<path_to_sdx_bin> (i.e. /opt/Xilinx/SDx/2018.3/ )
-* LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${XILINX_SDX}/platforms/xilinx_u280-es1_xdma_201830_1/sw/lib/x86_64:${XILINX_XRT}/lib/:${XILINX_SDX}/lib/lnx64.o:${XILINX_SDX}/lib/lnx64.o/Default:${XILINX_SDX}/lnx64/ tools/gcc/lib64
+* `XILINX_XRT=<path_to_xrt> (i.e /opt/xilinx/xrt/ )`
+* `XILINX_SDX=<path_to_sdx_bin> (i.e. /opt/Xilinx/SDx/2018.3/ )`
+* `LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${XILINX_SDX}/platforms/xilinx_u280-es1_xdma_201830_1/sw/lib/x86_64:${XILINX_XRT}/lib/:${XILINX_SDX}/lib/lnx64.o:${XILINX_SDX}/lib/lnx64.o/Default:${XILINX_SDX}/lnx64/ tools/gcc/lib64`
 
 
 ## Compile and launch a kernel
@@ -21,11 +21,11 @@ Synthesis generates the bitstream to be flashed on the FPGA.
 
 ### Building a kernel
 
-make build TARGET=[sw_emu | hw_emu | hw] 
+`make build TARGET=[sw_emu | hw_emu | hw] `
 
 ### Running a kernel
 
-make check TARGET=[sw_emu | hw_emu | hw]
+`make check TARGET=[sw_emu | hw_emu | hw]`
 
 The following reports are generated when the kernel execution terminates:
 * Application Timeline (.wdb format) containing the timing of the execution in terms of called functions and memory accesses in a pictorial form. Data is valid only in <hw> mode.
